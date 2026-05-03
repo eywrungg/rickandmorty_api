@@ -15,8 +15,13 @@ class CharacterController extends Controller
 
     public function index(Request $request)
     {
-        $page = max(1, (int) $request->query('page', 1));
-        $name = $request->query('name');
+        $validated = $request->validate([
+            'page' => ['nullable', 'integer', 'min:1', 'max:100'],
+            'name' => ['nullable', 'string', 'max:80', 'regex:/^[\pL\pN\s.\'-]+$/u'],
+        ]);
+
+        $page = (int) ($validated['page'] ?? 1);
+        $name = isset($validated['name']) ? trim(strip_tags($validated['name'])) : null;
         $data = $this->api->getCharacterPage($page, $name);
 
         $favorites = [];
@@ -34,6 +39,8 @@ class CharacterController extends Controller
 
     public function show($id)
     {
+        abort_unless(filter_var($id, FILTER_VALIDATE_INT) !== false && (int) $id > 0, 404);
+
         $character = $this->api->getCharacter((int) $id);
 
         abort_if(! $character, 404);

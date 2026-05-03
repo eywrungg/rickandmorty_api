@@ -13,9 +13,16 @@ class EpisodeController extends Controller
 
     public function index(Request $request)
     {
-        $season = $request->query('season');
-        $episodeNum = $request->query('episode_num');
-        $name = $request->query('name');
+        $validated = $request->validate([
+            'page' => ['nullable', 'integer', 'min:1', 'max:10'],
+            'season' => ['nullable', 'digits:2', 'in:01,02,03,04,05,06,07'],
+            'episode_num' => ['nullable', 'integer', 'min:1', 'max:20'],
+            'name' => ['nullable', 'string', 'max:80', 'regex:/^[\pL\pN\s.\':!?-]+$/u'],
+        ]);
+
+        $season = $validated['season'] ?? null;
+        $episodeNum = $validated['episode_num'] ?? null;
+        $name = isset($validated['name']) ? trim(strip_tags($validated['name'])) : null;
 
         $episodes = collect($this->api->getAllEpisodes())
             ->when($season, fn ($query) => $query->filter(fn ($episode) => str_contains($episode['episode'], 'S' . $season)))
@@ -24,7 +31,7 @@ class EpisodeController extends Controller
             ->values();
 
         $perPage = 20;
-        $page = max(1, (int) $request->query('page', 1));
+        $page = (int) ($validated['page'] ?? 1);
         $paged = $episodes->forPage($page, $perPage);
 
         $info = [
@@ -44,6 +51,8 @@ class EpisodeController extends Controller
 
     public function show($id)
     {
+        abort_unless(filter_var($id, FILTER_VALIDATE_INT) !== false && (int) $id > 0, 404);
+
         $episode = $this->api->getEpisode((int) $id);
 
         if (! $episode) {

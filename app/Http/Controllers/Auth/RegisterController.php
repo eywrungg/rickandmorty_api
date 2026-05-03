@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\RateLimiter;
-use Illuminate\Support\Str;
+use Illuminate\Validation\Rules\Password;
 use App\Mail\OtpMail;
 use App\Mail\WelcomeMail;
 use Carbon\Carbon;
@@ -25,6 +25,7 @@ class RegisterController extends Controller
     public function __construct()
     {
         $this->middleware('guest');
+        $this->middleware('throttle:5,10')->only('register');
     }
 
     /**
@@ -56,13 +57,12 @@ class RegisterController extends Controller
     protected function validator(array $data)
     {
         return Validator::make($data, [
-            'name'     => ['required', 'string', 'max:255', 'regex:/^[a-zA-Z\s]+$/'],
+            'name'     => ['required', 'string', 'max:80', 'regex:/^[\pL\s.\'-]+$/u'],
             'email'    => ['required', 'string', 'email', 'max:255', 'unique:users'],
-            'password' => ['required', 'string', 'min:8', 'confirmed', 'regex:/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/'],
+            'password' => ['required', 'string', 'max:255', 'confirmed', Password::min(8)->mixedCase()->numbers()],
             'otp'      => ['required', 'digits:6'],
         ], [
-            'name.regex' => 'Name can only contain letters and spaces.',
-            'password.regex' => 'Password must contain at least one uppercase letter, one lowercase letter, and one number.',
+            'name.regex' => 'Name can only contain letters, spaces, dots, apostrophes, and hyphens.',
         ]);
     }
 
@@ -71,13 +71,13 @@ class RegisterController extends Controller
      */
     protected function create(array $data)
     {
-        // 1) Verify OTP exists, matches, and not expired in email_otps table
+        // 1) Verify OTP exists, matches, and has not expired.
         $otpRecord = EmailOtp::where('email', $data['email'])
-                    ->where('otp', $data['otp'])
-                    ->where('expires_at', '>', Carbon::now())
-                    ->first();
+            ->valid()
+            ->latest()
+            ->first();
 
-        if (!$otpRecord) {
+        if (! $otpRecord || ! $otpRecord->matches($data['otp'])) {
             // Throw a validation exception so the error appears on the form
             throw \Illuminate\Validation\ValidationException::withMessages([
                 'otp' => ['Invalid or expired OTP. Request a new one and try again.']
@@ -115,17 +115,6 @@ class RegisterController extends Controller
      */
     public function sendOtp(Request $request)
     {
-        // Rate limiting by IP address (3 attempts per 3 minutes)
-        $rateLimitKey = 'send-otp:' . $request->ip();
-        
-        if (RateLimiter::tooManyAttempts($rateLimitKey, 3)) {
-            $seconds = RateLimiter::availableIn($rateLimitKey);
-            return response()->json([
-                'success' => false, 
-                'message' => "Too many OTP requests. Please try again in {$seconds} seconds."
-            ], 429);
-        }
-
         // Validate email format
         $validator = Validator::make($request->all(), [
             'email' => ['required', 'email', 'max:255']
@@ -139,6 +128,19 @@ class RegisterController extends Controller
         }
 
         $email = strtolower(trim($request->email));
+        $rateLimitKey = 'send-otp:' . sha1($request->ip() . '|' . $email);
+        
+        if (RateLimiter::tooManyAttempts($rateLimitKey, 3)) {
+            $seconds = RateLimiter::availableIn($rateLimitKey);
+            return response()->json([
+                'success' => false, 
+                'message' => "Too many OTP requests. Please try again in {$seconds} seconds."
+            ], 429);
+        }
+
+        RateLimiter::hit($rateLimitKey, 180); // 3 minutes decay
+
+        EmailOtp::expired()->delete();
 
         // Check if email already exists
         if (User::where('email', $email)->exists()) {
@@ -157,7 +159,7 @@ class RegisterController extends Controller
             EmailOtp::updateOrCreate(
                 ['email' => $email],
                 [
-                    'otp' => $otp, // Store plain for this implementation, consider hashing in production
+                    'otp' => Hash::make($otp),
                     'expires_at' => $expiresAt
                 ]
             );
@@ -179,9 +181,6 @@ class RegisterController extends Controller
                 'message' => 'Failed to send OTP. Please check your email address.'
             ], 500);
         }
-
-        // Increment rate limiter
-        RateLimiter::hit($rateLimitKey, 180); // 3 minutes decay
 
         return response()->json([
             'success' => true, 

@@ -47,13 +47,13 @@ Route::middleware(['auth'])->group(function () {
     // Characters
     Route::prefix('characters')->name('characters.')->group(function () {
         Route::get('/', [CharacterController::class, 'index'])->name('index');
-        Route::get('/{id}', [CharacterController::class, 'show'])->name('show');
+        Route::get('/{id}', [CharacterController::class, 'show'])->whereNumber('id')->name('show');
     });
 
     // Episodes
     Route::prefix('episodes')->name('episodes.')->group(function () {
         Route::get('/', [EpisodeController::class, 'index'])->name('index');
-        Route::get('/{id}', [EpisodeController::class, 'show'])->name('show');
+        Route::get('/{id}', [EpisodeController::class, 'show'])->whereNumber('id')->name('show');
     });
 
     // Favorites

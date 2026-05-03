@@ -265,10 +265,15 @@ This file now handles:
 
 - CSRF protection via Laravel
 - throttled OTP route
+- throttled registration submission
 - throttled favorites toggle route
 - throttled password update route
 - password hashing
+- hashed OTP storage
+- stricter input validation on search filters, numeric route IDs, favorites, passwords, and registration fields
 - session regeneration after login/registration
+- encrypted session cookie payloads by default
+- HTTP-only and SameSite session cookie defaults
 - custom security headers middleware
 
 Relevant file:
@@ -280,13 +285,43 @@ The middleware adds:
 
 - `X-Content-Type-Options`
 - `X-Frame-Options`
-- `X-XSS-Protection`
+- `X-XSS-Protection` set to `0` for modern browser behavior
 - `Referrer-Policy`
 - `Permissions-Policy`
+- `Cross-Origin-Opener-Policy`
+- `Cross-Origin-Resource-Policy`
+- `X-Permitted-Cross-Domain-Policies`
+- `X-DNS-Prefetch-Control`
 - `Strict-Transport-Security` in production
 - `Content-Security-Policy`
 
-The CSP was also adjusted to support Vite local development hosts.
+The CSP allows only the application itself, Google Fonts, the Rick and Morty API image/API host, and Vite local development hosts during local development. It also blocks plugin/object embedding with `object-src 'none'` and frame embedding with `frame-ancestors 'self'`.
+
+### Security Hardening Pass
+The latest hardening pass was based on OWASP cheat-sheet guidance and Laravel security defaults.
+
+Implemented protections:
+
+- OTP values are now stored with `Hash::make()` instead of plain text.
+- Submitted OTP values are verified with `Hash::check()`.
+- Expired OTP records are cleaned during new OTP requests.
+- Registration submissions are rate limited.
+- OTP request throttling now keys by IP plus email.
+- Character and episode search inputs have max lengths and allow-lists.
+- Character and episode detail routes require numeric IDs.
+- Favorite toggles validate character IDs, image URLs, and string lengths.
+- Password changes now use Laravel's password rule object for mixed-case and numeric requirements.
+- Session encryption now defaults to enabled in `config/session.php`.
+- Secure session cookies default to enabled in production.
+- `.env.example` documents `SESSION_ENCRYPT`, `SESSION_HTTP_ONLY`, `SESSION_SAME_SITE`, and `SESSION_SECURE_COOKIE`.
+
+Security tests were added in [SecurityHardeningTest.php](/C:/xampp/htdocs/RICKANDMORTY/tests/Feature/SecurityHardeningTest.php) to verify:
+
+- important security headers are present
+- OTP values are hashed at rest
+- OTP registration still works with hashed OTPs
+- script-like character search input is rejected
+- SQL-injection-like episode search input is rejected
 
 ## 9. Improvements Made In This Redesign
 
@@ -337,7 +372,6 @@ The CSP was also adjusted to support Vite local development hosts.
 
 ### Security / Reliability
 
-- hash OTP values in storage instead of storing them as plain text
 - add scheduled cleanup for expired OTPs
 - add stronger API failure handling and graceful fallback messaging
 - consider request timeouts and retry strategies for external API calls

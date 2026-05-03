@@ -15,16 +15,16 @@ class FavoriteController extends Controller
 
     public function toggle(Request $request)
     {
-        $request->validate([
-            'character_id' => 'required|integer',
-            'character_name' => 'nullable|string',
-            'character_image' => 'nullable|string',
+        $validated = $request->validate([
+            'character_id' => ['required', 'integer', 'min:1', 'max:10000'],
+            'character_name' => ['nullable', 'string', 'max:255'],
+            'character_image' => ['nullable', 'url', 'max:2048'],
         ]);
 
         $user = Auth::user();
 
         $existing = Favorite::where('user_id', $user->id)
-            ->where('character_id', $request->character_id)
+            ->where('character_id', $validated['character_id'])
             ->first();
 
         if ($existing) {
@@ -36,13 +36,19 @@ class FavoriteController extends Controller
             ]);
         }
 
-        $character = $this->api->getCharacter((int) $request->character_id);
+        $character = $this->api->getCharacter((int) $validated['character_id']);
+
+        if (! $character) {
+            return response()->json([
+                'message' => 'Unable to verify that character right now.',
+            ], 422);
+        }
 
         Favorite::create([
             'user_id' => $user->id,
-            'character_id' => $request->character_id,
-            'name' => $character['name'] ?? $request->character_name ?? 'Unknown',
-            'image' => $character['image'] ?? $request->character_image,
+            'character_id' => $validated['character_id'],
+            'name' => $character['name'] ?? $validated['character_name'] ?? 'Unknown',
+            'image' => $character['image'] ?? $validated['character_image'] ?? null,
         ]);
 
         return response()->json([

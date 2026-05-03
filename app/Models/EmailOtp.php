@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Carbon;
 
 class EmailOtp extends Model
@@ -76,6 +77,19 @@ class EmailOtp extends Model
     public function isValid()
     {
         return !$this->isExpired();
+    }
+
+    /**
+     * Verify a submitted OTP without storing plain text codes.
+     */
+    public function matches(string $otp): bool
+    {
+        if ($this->isExpired()) {
+            return false;
+        }
+
+        // Backward-compatible for old local rows created before OTP hashing.
+        return Hash::check($otp, $this->otp) || hash_equals($this->otp, $otp);
     }
 
     /**
